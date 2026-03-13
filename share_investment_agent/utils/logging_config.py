@@ -7,13 +7,15 @@ from pathlib import Path
 
 
 def setup_logger(name: str) -> logging.Logger:
-    """Set up logger with console and optional file output."""
+    """Set up logger with consistent formatting."""
+    # Create logger
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
 
     # Avoid duplicate handlers
     if logger.handlers:
         return logger
+
+    logger.setLevel(logging.INFO)
 
     # Create formatter
     formatter = logging.Formatter(
@@ -36,10 +38,8 @@ def setup_logger(name: str) -> logging.Logger:
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-    except Exception as e:
-        # If we can't create file handler, continue with console only
-        logger.warning(f"Failed to create file handler: {e}")
-        pass
+    except Exception:
+        logger.exception("Failed to create file handler")
 
     return logger
 

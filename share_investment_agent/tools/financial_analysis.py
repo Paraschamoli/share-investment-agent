@@ -55,6 +55,7 @@ class FinancialAnalyzer:
 
             logger.info("Technical indicators calculated successfully")
             return indicators
+
         except Exception as e:
             logger.exception("Failed to calculate technical indicators")
             return {"error": str(e)}
@@ -93,6 +94,7 @@ class FinancialAnalyzer:
                 indicators["trend"] = "neutral"
 
             return indicators
+
         except Exception as e:
             logger.exception("Failed to calculate trend indicators")
             return {"error": str(e)}
@@ -131,6 +133,7 @@ class FinancialAnalyzer:
             indicators["momentum_10"] = momentum_10.iloc[-1]
 
             return indicators
+
         except Exception as e:
             logger.exception("Failed to calculate momentum indicators")
             return {"error": str(e)}
@@ -178,6 +181,7 @@ class FinancialAnalyzer:
             indicators["volatility"] = volatility.iloc[-1]
 
             return indicators
+
         except Exception as e:
             logger.exception("Failed to calculate volatility indicators")
             return {"error": str(e)}
@@ -217,12 +221,12 @@ class FinancialAnalyzer:
 
             # Price-Volume Trend
             price_change = closes.pct_change()
-            # volume_change is available but not used in this calculation
             pvt = (price_change * volumes).cumsum()
 
             indicators["pvt"] = pvt.iloc[-1]
 
             return indicators
+
         except Exception as e:
             logger.exception("Failed to calculate volume indicators")
             return {"error": str(e)}
@@ -257,6 +261,7 @@ class FinancialAnalyzer:
                 indicators["pattern"] = "insufficient_data"
 
             return indicators
+
         except Exception as e:
             logger.exception("Failed to identify patterns")
             return {"error": str(e)}
@@ -285,6 +290,7 @@ class FinancialAnalyzer:
 
             logger.info("Financial metrics analysis completed")
             return analysis
+
         except Exception as e:
             logger.exception("Failed to analyze financial metrics")
             return {"error": str(e)}
@@ -489,6 +495,7 @@ class FinancialAnalyzer:
 
             logger.info("Valuation metrics calculated successfully")
             return valuation
+
         except Exception as e:
             logger.exception("Failed to calculate valuation metrics")
             return {"error": str(e)}
@@ -500,7 +507,6 @@ class FinancialAnalyzer:
             profitability = financial_data.get("profitability", {})
 
             # Extract metrics
-            # revenue is available but not used in this calculation
             net_income = profitability.get("net_income", 0)
             fcf = financial_data.get("financial_health", {}).get("free_cash_flow", 0)
 
@@ -553,6 +559,7 @@ class FinancialAnalyzer:
                     "projection_years": projection_years,
                 },
             }
+
         except Exception as e:
             logger.exception("Failed to calculate DCF")
             return {"error": str(e)}
@@ -600,6 +607,7 @@ class FinancialAnalyzer:
                 "fair_values": fair_values,
                 "fair_value": fair_value,
             }
+
         except Exception as e:
             logger.exception("Failed to calculate relative valuation")
             return {"error": str(e)}
@@ -624,6 +632,7 @@ class FinancialAnalyzer:
                 "asset_value": asset_value,
                 "note": "Simplified calculation - should use actual book value from balance sheet",
             }
+
         except Exception as e:
             logger.exception("Failed to calculate asset-based valuation")
             return {"error": str(e)}

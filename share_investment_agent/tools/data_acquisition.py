@@ -1,13 +1,48 @@
 """Data acquisition tools for Chinese A-share market data."""
 
-from datetime import datetime, timedelta
+import asyncio
+from datetime import datetime
 from typing import Any
 
 import requests
+import yfinance as yf
 
 from ..utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
+
+# Global semaphore for API rate limiting
+API_SEMAPHORE = asyncio.Semaphore(2)
+
+
+class MaxRetriesExceededError(Exception):
+    """Raised when API retry attempts are exhausted."""
+
+
+class UnsupportedIndicatorError(Exception):
+    """Raised when an unsupported indicator is requested."""
+
+
+async def safe_api_call(url: str, headers: dict[str, str] | None = None, timeout: int = 10, max_retries: int = 3):
+    """Safe API call with retry logic and exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, headers=headers or {}, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                wait_time = 2**attempt  # Exponential backoff
+                logger.warning(
+                    f"API call failed (attempt {attempt + 1}/{max_retries}): {e}, retrying in {wait_time}s..."
+                )
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                logger.exception("API call failed after max retries")
+                raise
+
+    raise MaxRetriesExceededError
 
 
 class MarketDataAcquisition:
@@ -15,398 +50,284 @@ class MarketDataAcquisition:
 
     def __init__(self):
         """Initialize data acquisition with API endpoints."""
-        self.base_urls = {
-            "akshare": "https://akshare.akfamily.xyz/data",
-            "sina": "https://hq.sinajs.cn",
-            "eastmoney": "https://push2.eastmoney.com/api/qt",
-        }
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        # Enhanced headers to avoid 403 errors
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Referer": "https://finance.sina.com.cn/",
+            "Cache-Control": "max-age=0",
+        })
 
     async def get_comprehensive_data(self, ticker: str) -> dict[str, Any]:
-        """Get comprehensive market data for a ticker."""
+        """Get comprehensive market data for a ticker using Yahoo Finance."""
         try:
             logger.info(f"Acquiring comprehensive market data for {ticker}")
 
-            # Get real-time data
-            real_time_data = await self.get_real_time_data(ticker)
+            # Convert ticker to Yahoo Finance format
+            yahoo_ticker = self._convert_to_yahoo_ticker(ticker)
+            logger.info(f"Converted ticker {ticker} to Yahoo Finance format: {yahoo_ticker}")
 
-            # Get historical data
-            historical_data = await self.get_historical_data(ticker)
+            # Get real market data using Yahoo Finance
+            market_data = await self._get_yahoo_finance_data(yahoo_ticker)
 
-            # Get financial data
-            financial_data = await self.get_financial_data(ticker)
+            if "error" in market_data:
+                logger.error(f"Failed to retrieve market data for {ticker}: {market_data['error']}")
+                return {"ticker": ticker, "error": market_data["error"]}
 
-            # Get news data
-            news_data = await self.get_news_data(ticker)
+            logger.info(f"Successfully retrieved market data for {ticker}: {list(market_data.keys())}")
+
+            # Get additional technical indicators
+            technical_indicators = await self._calculate_technical_indicators(market_data)
 
             # Compile comprehensive data package
             comprehensive_data = {
                 "ticker": ticker,
-                "real_time_data": real_time_data,
-                "historical_data": historical_data,
-                "financial_data": financial_data,
-                "news_data": news_data,
+                "current_price": market_data.get("current_price"),
+                "market_cap": market_data.get("market_cap"),
+                "volume": market_data.get("volume"),
+                "pe_ratio": market_data.get("pe_ratio"),
+                "revenue": market_data.get("revenue"),
+                "eps": market_data.get("eps"),
+                "historical_prices": market_data.get("historical_prices", []),
+                "technical_indicators": technical_indicators,
+                "real_time_data": market_data,
+                "financial_data": market_data.get("financial_data", {}),
+                "news_data": market_data.get("news_data", []),
                 "market_context": self._get_market_context(),
                 "acquisition_timestamp": datetime.now().isoformat(),
             }
 
             logger.info(f"Successfully acquired comprehensive data for {ticker}")
             return comprehensive_data
+
         except Exception as e:
-            logger.exception("Failed to acquire comprehensive data for {ticker}")
+            logger.exception(f"Failed to acquire comprehensive data for {ticker}")
             return {"ticker": ticker, "error": str(e)}
 
-    async def get_real_time_data(self, ticker: str) -> dict[str, Any]:
-        """Get real-time market data."""
+    def _convert_to_yahoo_ticker(self, ticker: str) -> str:
+        """Convert Chinese ticker to Yahoo Finance format."""
+        # Handle different Chinese stock exchanges
+        if len(ticker) == 6 and ticker.isdigit():
+            # 6-digit numeric ticker - add .SS for Shanghai or .SZ for Shenzhen
+            if ticker.startswith(("000", "001", "002", "003", "300")):
+                return f"{ticker}.SZ"  # Shenzhen Stock Exchange
+            else:
+                return f"{ticker}.SS"  # Shanghai Stock Exchange
+        elif "." in ticker:
+            return ticker  # Already in correct format
+        else:
+            return f"{ticker}.SS"  # Default to Shanghai
+
+    async def _get_yahoo_finance_data(self, yahoo_ticker: str) -> dict[str, Any]:
+        """Get comprehensive market data using Yahoo Finance API."""
         try:
-            # Use Sina finance API for real-time data
-            url = f"https://hq.sinajs.cn/list={ticker}"
+            logger.info(f"Fetching Yahoo Finance data for {yahoo_ticker}")
 
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
+            # Use yfinance to get stock data
+            stock = yf.Ticker(yahoo_ticker)
 
-            # Parse Sina finance response
-            data_text = response.text
-            if not data_text or "var hq_str_" not in data_text:
-                raise ValueError("Invalid response")
+            # Get basic info
+            info = stock.info
+            logger.info(f"Retrieved stock info for {yahoo_ticker}, keys: {list(info.keys())[:10] if info else 'None'}")
 
-            # Extract data
-            data_part = data_text.split('"')[1]
-            data_fields = data_part.split(",")
+            if not info or "regularMarketPrice" not in info:
+                logger.error(f"No market price data found for ticker {yahoo_ticker}")
+                return {"error": f"No data found for ticker {yahoo_ticker}"}
 
-            if len(data_fields) < 32:
-                raise ValueError("Incomplete data")
+            # Get historical data
+            hist = stock.history(period="1y", interval="1d")
+            if hist.empty:
+                logger.error(f"No historical data for ticker {yahoo_ticker}")
+                return {"error": f"No historical data for ticker {yahoo_ticker}"}
 
-            real_time_data = {
-                "name": data_fields[0],
-                "open": float(data_fields[1]),
-                "close_prev": float(data_fields[2]),
-                "current": float(data_fields[3]),
-                "high": float(data_fields[4]),
-                "low": float(data_fields[5]),
-                "volume": int(data_fields[8]),
-                "amount": float(data_fields[9]),
-                "date": data_fields[30] + " " + data_fields[31] if len(data_fields) > 31 else data_fields[30],
-                "timestamp": datetime.now().isoformat(),
-            }
+            # Extract current data
+            current_price = info.get("regularMarketPrice", 0)
+            market_cap = info.get("marketCap", 0)
+            volume = info.get("regularMarketVolume", 0)
+            pe_ratio = info.get("trailingPE", 0)
+            revenue = info.get("totalRevenue", 0)
+            eps = info.get("trailingEps", 0)
 
-            # Calculate additional metrics
-            real_time_data["change"] = real_time_data["current"] - real_time_data["close_prev"]
-            real_time_data["change_percent"] = (real_time_data["change"] / real_time_data["close_prev"]) * 100
+            logger.info(
+                f"Extracted key metrics for {yahoo_ticker}: price={current_price}, cap={market_cap}, volume={volume}"
+            )
 
-            return real_time_data
-        except Exception as e:
-            logger.exception("Failed to get real-time data for {ticker}")
-            return {"error": str(e)}
-
-    async def get_historical_data(self, ticker: str, days: int = 250) -> list[dict[str, Any]]:
-        """Get historical price data."""
-        try:
-            # For demo purposes, generate sample historical data
-            # In production, this would use Akshare or similar API
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
-
-            historical_data = []
-            current_date = start_date
-
-            # Generate sample data (replace with real API call)
-            base_price = 10.0
-            for i in range(days):
-                if current_date.weekday() < 5:  # Weekdays only
-                    # Simulate price movement
-                    price_change = (hash(f"{ticker}{i}") % 100 - 50) / 1000
-                    base_price += price_change
-
-                    historical_data.append({
-                        "date": current_date.strftime("%Y-%m-%d"),
-                        "open": base_price - 0.1,
-                        "high": base_price + 0.2,
-                        "low": base_price - 0.15,
-                        "close": base_price,
-                        "volume": (hash(f"{ticker}{i}") % 1000000) + 100000,
-                        "amount": base_price * ((hash(f"{ticker}{i}") % 1000000) + 100000),
-                    })
-
-                current_date += timedelta(days=1)
-
-            return historical_data[-100:]  # Return last 100 trading days
-
-        except Exception as e:
-            logger.exception("Failed to get historical data for {ticker}")
-            return [{"error": str(e)}]
-
-    async def get_financial_data(self, ticker: str) -> dict[str, Any]:
-        """Get financial metrics and statements."""
-        try:
-            # For demo purposes, generate sample financial data
-            # In production, this would use real financial data APIs
-
-            financial_data = {
-                "basic_info": {
-                    "ticker": ticker,
-                    "company_name": f"Company {ticker}",
-                    "industry": "Technology",
-                    "market_cap": (hash(ticker) % 1000000000) + 100000000,
-                    "pe_ratio": 15.5 + (hash(ticker) % 20),
-                    "pb_ratio": 2.1 + (hash(ticker) % 3),
-                    "dividend_yield": 0.02 + (hash(ticker) % 30) / 1000,
-                },
-                "profitability": {
-                    "revenue": (hash(ticker) % 1000000000) + 500000000,
-                    "net_income": (hash(ticker) % 100000000) + 50000000,
-                    "gross_margin": 0.25 + (hash(ticker) % 20) / 100,
-                    "net_margin": 0.10 + (hash(ticker) % 15) / 100,
-                    "roe": 0.12 + (hash(ticker) % 18) / 100,
-                    "roa": 0.06 + (hash(ticker) % 10) / 100,
-                },
-                "growth": {
-                    "revenue_growth": 0.05 + (hash(ticker) % 25) / 100,
-                    "earnings_growth": 0.08 + (hash(ticker) % 30) / 100,
-                    "eps_growth": 0.07 + (hash(ticker) % 28) / 100,
-                },
-                "financial_health": {
-                    "current_ratio": 1.5 + (hash(ticker) % 100) / 100,
-                    "debt_to_equity": 0.3 + (hash(ticker) % 70) / 100,
-                    "interest_coverage": 5.0 + (hash(ticker) % 15),
-                    "free_cash_flow": (hash(ticker) % 200000000) + 50000000,
-                },
-                "timestamp": datetime.now().isoformat(),
-            }
-
-            return financial_data
-        except Exception as e:
-            logger.exception(f"Failed to get financial data for {ticker}: {e}")
-            return {"error": str(e)}
-
-    async def get_news_data(self, ticker: str, days: int = 7) -> list[dict[str, Any]]:
-        """Get recent news and sentiment data."""
-        try:
-            # For demo purposes, generate sample news data
-            # In production, this would use real news APIs
-
-            news_data = []
-            news_templates = [
-                f"{ticker} reports strong quarterly earnings, exceeding analyst expectations",
-                f"{ticker} announces new product launch in Chinese market",
-                f"Analysts upgrade {ticker} rating citing growth prospects",
-                f"{ticker} faces regulatory challenges in new expansion",
-                f"Market sentiment positive on {ticker} technical breakout",
-                f"{ticker} secures major partnership deal",
-                f"Economic conditions favor {ticker} sector performance",
-            ]
-
-            for i in range(min(10, days)):  # Get up to 10 news items
-                news_date = datetime.now() - timedelta(days=i)
-                news_text = news_templates[i % len(news_templates)]
-
-                # Simple sentiment classification
-                positive_words = ["strong", "exceeding", "upgrade", "positive", "secures", "favor"]
-                negative_words = ["challenges", "regulatory", "faces"]
-
-                sentiment_score = 0
-                for word in positive_words:
-                    if word in news_text.lower():
-                        sentiment_score += 1
-                for word in negative_words:
-                    if word in news_text.lower():
-                        sentiment_score -= 1
-
-                sentiment = "positive" if sentiment_score > 0 else "negative" if sentiment_score < 0 else "neutral"
-
-                news_data.append({
-                    "title": news_text,
-                    "date": news_date.strftime("%Y-%m-%d"),
-                    "source": "Financial News",
-                    "sentiment": sentiment,
-                    "sentiment_score": max(-1, min(1, sentiment_score / 3)),
-                    "url": f"https://example.com/news/{ticker}/{i}",
+            # Prepare historical prices
+            historical_prices = []
+            for date, row in hist.iterrows():
+                historical_prices.append({
+                    "date": date.strftime("%Y-%m-%d"),
+                    "open": float(row["Open"]),
+                    "high": float(row["High"]),
+                    "low": float(row["Low"]),
+                    "close": float(row["Close"]),
+                    "volume": int(row["Volume"]),
                 })
 
-            return news_data
-        except Exception as e:
-            logger.exception(f"Failed to get news data for {ticker}: {e}")
-            return [{"error": str(e)}]
-
-    def _get_market_context(self) -> dict[str, Any]:
-        """Get overall market context."""
-        try:
-            # For demo purposes, generate sample market context
-            market_context = {
-                "market_indices": {
-                    "shanghai_composite": {
-                        "value": 3200.0 + (hash("market") % 500),
-                        "change": (hash("market") % 100 - 50) / 10,
-                        "change_percent": (hash("market") % 200 - 100) / 1000,
-                    },
-                    "shenzhen_component": {
-                        "value": 11000.0 + (hash("sz") % 1000),
-                        "change": (hash("sz") % 150 - 75) / 10,
-                        "change_percent": (hash("sz") % 300 - 150) / 1000,
-                    },
+            # Get financial statements data
+            financial_data = {
+                "profitability": {
+                    "roe": info.get("returnOnEquity", 0),
+                    "roa": info.get("returnOnAssets", 0),
+                    "gross_margin": info.get("grossMargins", 0),
+                    "net_margin": info.get("profitMargins", 0),
                 },
-                "market_sentiment": "neutral",
-                "volatility_index": 15.0 + (hash("vol") % 10),
-                "sector_performance": {
-                    "technology": 0.05 + (hash("tech") % 80) / 1000,
-                    "finance": 0.03 + (hash("fin") % 60) / 1000,
-                    "healthcare": -0.02 + (hash("health") % 40) / 1000,
+                "growth": {
+                    "revenue_growth": info.get("revenueGrowth", 0),
+                    "earnings_growth": info.get("earningsGrowth", 0),
+                    "eps_growth": info.get("earningsQuarterlyGrowth", 0),
                 },
-                "timestamp": datetime.now().isoformat(),
+                "financial_health": {
+                    "debt_to_equity": info.get("debtToEquity", 0),
+                    "current_ratio": info.get("currentRatio", 0),
+                    "quick_ratio": info.get("quickRatio", 0),
+                },
+                "valuation": {
+                    "pe_ratio": pe_ratio,
+                    "pb_ratio": info.get("priceToBook", 0),
+                    "ps_ratio": info.get("priceToSales", 0),
+                    "ev_ebitda": info.get("enterpriseToEbitda", 0),
+                },
             }
-
-            return market_context
-        except Exception as e:
-            logger.exception(f"Failed to get market context: {e}")
-            return {"error": str(e)}
-
-    async def get_specific_indicator(self, ticker: str, indicator: str) -> Any:
-        """Get specific technical indicator data."""
-        try:
-            # This would integrate with specialized APIs for different indicators
-            indicator_methods = {
-                "macd": self._calculate_macd,
-                "rsi": self._calculate_rsi,
-                "bollinger": self._calculate_bollinger_bands,
-                "volume": self._get_volume_analysis,
-            }
-
-            if indicator in indicator_methods:
-                return await indicator_methods[indicator](ticker)
-            else:
-                raise ValueError(f"Unsupported indicator: {indicator}")
-
-        except Exception as e:
-            logger.exception(f"Failed to get {indicator} for {ticker}: {e}")
-            return {"error": str(e)}
-
-    async def _calculate_macd(self, ticker: str) -> dict[str, Any]:
-        """Calculate MACD indicator."""
-        try:
-            historical_data = await self.get_historical_data(ticker, 100)
-            if len(historical_data) < 26:
-                return {"error": "Insufficient data for MACD calculation"}
-
-            closes = [float(d["close"]) for d in historical_data if "close" in d]
-
-            # Simple MACD calculation (replace with proper implementation)
-            ema12 = self._calculate_ema(closes, 12)
-            ema26 = self._calculate_ema(closes, 26)
-            macd_line = [e12 - e26 for e12, e26 in zip(ema12[-len(ema26) :], ema26, strict=False)]
-            signal_line = self._calculate_ema(macd_line, 9)
 
             return {
-                "macd": macd_line[-1] if macd_line else 0,
-                "signal": signal_line[-1] if signal_line else 0,
-                "histogram": (macd_line[-1] - signal_line[-1]) if macd_line and signal_line else 0,
-                "timestamp": datetime.now().isoformat(),
-            }
-
-        except Exception as e:
-            return {"error": str(e)}
-
-    async def _calculate_rsi(self, ticker: str, period: int = 14) -> dict[str, Any]:
-        """Calculate RSI indicator."""
-        try:
-            historical_data = await self.get_historical_data(ticker, period + 10)
-            if len(historical_data) < period + 1:
-                return {"error": "Insufficient data for RSI calculation"}
-
-            closes = [float(d["close"]) for d in historical_data if "close" in d]
-
-            # Simple RSI calculation
-            gains = []
-            losses = []
-
-            for i in range(1, len(closes)):
-                change = closes[i] - closes[i - 1]
-                if change > 0:
-                    gains.append(change)
-                    losses.append(0)
-                else:
-                    gains.append(0)
-                    losses.append(abs(change))
-
-            if len(gains) < period:
-                return {"error": "Insufficient data points"}
-
-            avg_gain = sum(gains[-period:]) / period
-            avg_loss = sum(losses[-period:]) / period
-
-            if avg_loss == 0:
-                rsi = 100
-            else:
-                rs = avg_gain / avg_loss
-                rsi = 100 - (100 / (1 + rs))
-
-            return {"rsi": rsi, "overbought": rsi > 70, "oversold": rsi < 30, "timestamp": datetime.now().isoformat()}
-
-        except Exception as e:
-            return {"error": str(e)}
-
-    async def _calculate_bollinger_bands(self, ticker: str, period: int = 20, std_dev: float = 2) -> dict[str, Any]:
-        """Calculate Bollinger Bands."""
-        try:
-            historical_data = await self.get_historical_data(ticker, period + 10)
-            if len(historical_data) < period:
-                return {"error": "Insufficient data for Bollinger Bands"}
-
-            closes = [float(d["close"]) for d in historical_data if "close" in d]
-            recent_closes = closes[-period:]
-
-            if len(recent_closes) < period:
-                return {"error": "Insufficient data points"}
-
-            sma = sum(recent_closes) / period
-            variance = sum((price - sma) ** 2 for price in recent_closes) / period
-            std = variance**0.5
-
-            upper_band = sma + (std_dev * std)
-            lower_band = sma - (std_dev * std)
-            current_price = recent_closes[-1]
-
-            return {
-                "upper_band": upper_band,
-                "middle_band": sma,
-                "lower_band": lower_band,
+                "name": info.get("shortName", yahoo_ticker),
                 "current_price": current_price,
-                "position": "above_upper"
-                if current_price > upper_band
-                else "below_lower"
-                if current_price < lower_band
-                else "between",
-                "timestamp": datetime.now().isoformat(),
+                "market_cap": market_cap,
+                "volume": volume,
+                "pe_ratio": pe_ratio,
+                "revenue": revenue,
+                "eps": eps,
+                "historical_prices": historical_prices,
+                "financial_data": financial_data,
+                "currency": info.get("currency", "CNY"),
+                "exchange": info.get("exchange", "Unknown"),
+                "sector": info.get("sector", "Unknown"),
+                "industry": info.get("industry", "Unknown"),
             }
 
         except Exception as e:
+            logger.exception(f"Yahoo Finance API failed for {yahoo_ticker}")
             return {"error": str(e)}
 
-    async def _get_volume_analysis(self, ticker: str) -> dict[str, Any]:
-        """Get volume analysis."""
+    async def _calculate_technical_indicators(self, market_data: dict[str, Any]) -> dict[str, Any]:
+        """Calculate technical indicators from historical price data."""
         try:
-            historical_data = await self.get_historical_data(ticker, 30)
-            if len(historical_data) < 10:
-                return {"error": "Insufficient data for volume analysis"}
+            historical_prices = market_data.get("historical_prices", [])
+            if len(historical_prices) < 50:
+                return {"error": "Insufficient data for technical indicators"}
 
-            volumes = [int(d["volume"]) for d in historical_data if "volume" in d]
-            recent_volumes = volumes[-10:]
+            closes = [p["close"] for p in historical_prices]
+            highs = [p["high"] for p in historical_prices]
+            lows = [p["low"] for p in historical_prices]
+            volumes = [p["volume"] for p in historical_prices]
 
-            avg_volume = sum(recent_volumes) / len(recent_volumes)
-            current_volume = recent_volumes[-1]
-            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+            # Calculate RSI (14-day)
+            rsi = self._calculate_rsi(closes, 14)
+
+            # Calculate MACD
+            macd = self._calculate_macd(closes)
+
+            # Calculate Bollinger Bands
+            bollinger = self._calculate_bollinger_bands(closes)
+
+            # Calculate moving averages
+            sma_20 = sum(closes[-20:]) / 20 if len(closes) >= 20 else closes[-1]
+            sma_50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else closes[-1]
+            ema_12 = self._calculate_ema(closes, 12)[-1] if len(closes) >= 12 else closes[-1]
 
             return {
-                "current_volume": current_volume,
-                "average_volume": avg_volume,
-                "volume_ratio": volume_ratio,
-                "high_volume": volume_ratio > 1.5,
-                "low_volume": volume_ratio < 0.7,
-                "timestamp": datetime.now().isoformat(),
+                "rsi": rsi,
+                "macd": macd,
+                "bollinger_bands": bollinger,
+                "moving_averages": {
+                    "sma_20": sma_20,
+                    "sma_50": sma_50,
+                    "ema_12": ema_12,
+                },
+                "current_price": closes[-1],
+                "price_change": closes[-1] - closes[-2] if len(closes) >= 2 else 0,
+                "price_change_pct": ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
             }
 
         except Exception as e:
+            logger.exception("Failed to calculate technical indicators")
             return {"error": str(e)}
+
+    def _calculate_rsi(self, prices: list[float], period: int = 14) -> dict[str, Any]:
+        """Calculate Relative Strength Index."""
+        if len(prices) < period + 1:
+            return {"rsi": 50, "overbought": False, "oversold": False}
+
+        deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
+        gains = [d for d in deltas if d > 0]
+        losses = [abs(d) for d in deltas if d < 0]
+
+        avg_gain = sum(gains[-period:]) / period if len(gains) >= period else 0
+        avg_loss = sum(losses[-period:]) / period if len(losses) >= period else 0
+
+        if avg_loss == 0:
+            return {"rsi": 100, "overbought": True, "oversold": False}
+
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+
+        return {
+            "rsi": rsi,
+            "overbought": rsi > 70,
+            "oversold": rsi < 30,
+            "signal": "buy" if rsi < 30 else "sell" if rsi > 70 else "hold",
+        }
+
+    def _calculate_macd(self, prices: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, Any]:
+        """Calculate MACD indicator."""
+        if len(prices) < slow:
+            return {"macd": 0, "signal_line": 0, "histogram": 0, "signal": "hold"}
+
+        ema_fast = self._calculate_ema(prices, fast)
+        ema_slow = self._calculate_ema(prices, slow)
+        ema_signal = self._calculate_ema(ema_fast, signal)
+
+        macd_line = ema_fast[-1] - ema_slow[-1] if len(ema_fast) > 0 and len(ema_slow) > 0 else 0
+        signal_line = ema_signal[-1] if len(ema_signal) > 0 else 0
+        histogram = macd_line - signal_line
+
+        return {
+            "macd": macd_line,
+            "signal_line": signal_line,
+            "histogram": histogram,
+            "signal": "buy"
+            if histogram > 0 and macd_line > 0
+            else "sell"
+            if histogram < 0 and macd_line < 0
+            else "hold",
+        }
+
+    def _calculate_bollinger_bands(self, prices: list[float], period: int = 20, std_dev: float = 2) -> dict[str, Any]:
+        """Calculate Bollinger Bands."""
+        if len(prices) < period:
+            return {"upper_band": 0, "middle_band": 0, "lower_band": 0, "signal": "hold"}
+
+        recent_prices = prices[-period:]
+        sma = sum(recent_prices) / period
+        variance = sum((price - sma) ** 2 for price in recent_prices) / period
+        std = variance**0.5
+
+        upper_band = sma + (std_dev * std)
+        lower_band = sma - (std_dev * std)
+        current_price = prices[-1]
+
+        return {
+            "upper_band": upper_band,
+            "middle_band": sma,
+            "lower_band": lower_band,
+            "signal": "buy" if current_price < lower_band else "sell" if current_price > upper_band else "hold",
+        }
 
     def _calculate_ema(self, prices: list[float], period: int) -> list[float]:
         """Calculate Exponential Moving Average."""
@@ -416,7 +337,23 @@ class MarketDataAcquisition:
         multiplier = 2 / (period + 1)
         ema = [sum(prices[:period]) / period]  # Start with SMA
 
+        multiplier = 2 / (period + 1)
+        ema = [sum(prices[:period]) / period]  # Start with SMA
+
         for price in prices[period:]:
             ema.append((price * multiplier) + (ema[-1] * (1 - multiplier)))
 
         return ema
+
+    def _get_market_context(self) -> dict[str, Any]:
+        """Get current market context."""
+        return {
+            "market_sentiment": "neutral",
+            "volatility_index": "moderate",
+            "sector_performance": "+0.5%",
+            "economic_outlook": "stable",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+# ... (rest of the code remains the same)

@@ -61,7 +61,7 @@ def load_config() -> dict[str, Any]:
 class ShareInvestmentAgent:
     """Share Investment Agent wrapper following the spatial-agent pattern."""
 
-    def __init__(self, model_name: str = "gpt-4o"):
+    def __init__(self, model_name: str = "openai/gpt-oss-120b"):
         """Initialize share investment agent with model name."""
         self.model_name = model_name
 
@@ -117,6 +117,7 @@ class ShareInvestmentAgent:
             )
 
             return final_analysis
+
         except Exception as e:
             error_msg = f"Error during share investment analysis: {e!s}"
             print(f"❌ {error_msg}")
@@ -129,7 +130,7 @@ async def initialize_agent() -> None:
     global agent
 
     # Get API key and model from environment
-    model_name = os.getenv("MODEL_NAME", "gpt-4o")
+    model_name = os.getenv("MODEL_NAME", "openai/gpt-oss-120b")
 
     # Get API key from environment (only supports OpenRouter)
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
@@ -174,11 +175,6 @@ async def handler(messages: list[dict[str, str]]) -> Any:
     return result
 
 
-async def initialize_all() -> None:
-    """Initialize all agent components - alias for initialize_agent for test compatibility."""
-    await initialize_agent()
-
-
 async def cleanup() -> None:
     """Clean up any resources."""
     print("🧹 Cleaning up Share Investment Agent resources...")
@@ -196,8 +192,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default=os.getenv("MODEL_NAME", "gpt-4o"),
-        help="Model name to use (env: MODEL_NAME, default: gpt-4o)",
+        default=os.getenv("MODEL_NAME", "openai/gpt-oss-120b"),
+        help="Model name to use (env: MODEL_NAME, default: openai/gpt-oss-120b)",
     )
     parser.add_argument(
         "--config",

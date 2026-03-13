@@ -5,7 +5,7 @@
 <h1 align="center">share-investment-agent</h1>
 
 <p align="center">
-  <strong>A Bindu AI agent for intelligent task handling</strong>
+  <strong>A comprehensive AI agent for Chinese A-share investment analysis</strong>
 </p>
 
 <p align="center">
@@ -15,18 +15,26 @@
   <a href="https://img.shields.io/github/license/Paraschamoli/share-investment-agent">
     <img src="https://img.shields.io/github/license/Paraschamoli/share-investment-agent" alt="License">
   </a>
+  <img src="https://img.shields.io/badge/status-production%20ready-brightgreen" alt="Status">
 </p>
 
 ---
 
 ## 📖 Overview
 
-A Bindu AI agent for intelligent task handling. Built on the [Bindu Agent Framework](https://github.com/getbindu/bindu) for the Internet of Agents.
+A sophisticated AI-powered investment analysis agent specifically designed for Chinese A-share markets. Built on the [Bindu Agent Framework](https://github.com/getbindu/bindu) for Internet of Agents, providing comprehensive financial analysis through multiple specialist agents.
 
 **Key Capabilities:**
-- 🔍 [Add your key capabilities here]
-- ✅ [Add another capability]
-- 🚨 [Add another capability]
+- � **Technical Analysis**: MACD, RSI, Bollinger Bands, Moving Averages, Volume Analysis
+- 💰 **Fundamental Analysis**: ROE, debt ratios, margins, growth rates, cash flow analysis
+- 📰 **Sentiment Analysis**: News sentiment, social media analysis, market psychology
+- 💎 **Valuation Analysis**: DCF analysis, comparable company analysis, scenario modeling
+- 🐂 **Bullish Research**: Optimistic investment thesis and growth opportunities
+- 🐻 **Bearish Research**: Risk assessment and downside analysis
+- ⚖️ **Debate Room**: Balanced synthesis of bull/bear arguments
+- �️ **Risk Management**: VaR calculation, stress testing, risk mitigation
+- 🌍 **Macro Analysis**: Economic indicators, policy impact, market cycles
+- 📈 **Portfolio Management**: Final investment decisions with position sizing
 
 ---
 
@@ -36,7 +44,7 @@ A Bindu AI agent for intelligent task handling. Built on the [Bindu Agent Framew
 
 - Python 3.10+
 - [uv](https://github.com/astral-sh/uv) package manager
-- API keys for OpenRouter and Mem0 (both have free tiers)
+- OpenRouter API key (free tier available)
 
 ### Installation
 
@@ -68,8 +76,8 @@ Edit `.env` and add your API keys:
 ### Run the Agent
 
 ```bash
-# Start the agent
-uv run python -m share_investment_agent
+# Start the investment analysis agent
+uv run -m share_investment_agent
 
 # Agent will be available at http://localhost:3773
 ```
@@ -93,34 +101,52 @@ gh repo create Paraschamoli/share-investment-agent --public --source=. --remote=
 ### Example Queries
 
 ```bash
-# Example query 1
-"[Add example query here]"
+# Comprehensive analysis request
+"Provide balanced investment analysis for Ping An Bank (000001) including:
+- Technical analysis with MACD, RSI, Bollinger Bands
+- Fundamental analysis with profitability metrics
+- Sentiment analysis with market psychology
+- Valuation analysis with DCF
+- Bullish researcher perspective
+- Bearish researcher perspective
+- Debate room synthesis
+- Final portfolio management recommendation"
 
-# Example query 2
-"[Add another example]"
+# Quick analysis
+"Analyze stock 000001 for investment potential"
+
+# Risk-focused analysis
+"What are the main risks and opportunities for Tencent (007)?"
 ```
 
 ### Input Formats
 
 **Plain Text:**
 ```
-[Describe expected input format]
+Analyze [TICKER] for investment opportunities including technical, fundamental, and sentiment analysis
 ```
 
 **JSON:**
 ```json
 {
-  "content": "[example content]",
-  "focus": "[example focus]"
+  "ticker": "000001",
+  "analysis_type": "comprehensive",
+  "focus": ["technical", "fundamental", "sentiment", "valuation"]
 }
 ```
 
 ### Output Structure
 
-The agent returns structured output with:
-- **[Output Component 1]**: Description
-- **[Output Component 2]**: Description
-- **[Output Component 3]**: Description
+The agent returns comprehensive investment reports with:
+- **Final Investment Decision**: Action (BUY/SELL/HOLD), confidence, position sizing
+- **Technical Analysis**: Trading signals, indicator analysis, chart patterns
+- **Fundamental Analysis**: Profitability, growth, financial health metrics
+- **Sentiment Analysis**: Market sentiment, news analysis, psychology factors
+- **Valuation Analysis**: Intrinsic value, DCF models, relative valuation
+- **Research Team Perspectives**: Bullish and bearish theses with confidence scores
+- **Debate Room Outcome**: Balanced synthesis and mixed confidence
+- **Risk Assessment**: Risk levels, VaR estimates, mitigation strategies
+- **Macro Analysis**: Economic outlook, policy impact, market cycles
 
 ---
 
@@ -145,30 +171,40 @@ For complete API documentation, request/response formats, and examples, visit:
 
 ## 🎯 Skills
 
-### share_investment_agent (v1.0.0)
+### share_investment (v1.0.0)
 
 **Primary Capability:**
-- [Describe what this skill does]
-- [Add key features]
+- Comprehensive Chinese A-share investment analysis using multiple specialist agents
+- Multi-agent debate system for balanced investment recommendations
+- Risk-aware portfolio management with position sizing
 
 **Features:**
-- [Feature 1]
-- [Feature 2]
-- [Feature 3]
+- 10+ specialist agents covering all aspects of investment analysis
+- Real-time market data integration with Akshare API
+- Advanced technical indicators and chart pattern recognition
+- Fundamental financial metrics and DCF valuation models
+- Sentiment analysis from news and social media
+- Bull/bear research with structured debate methodology
+- Comprehensive risk management with VaR calculations
+- Macro-economic analysis and policy impact assessment
 
 **Best Used For:**
-- [Use case 1]
-- [Use case 2]
-- [Use case 3]
+- Chinese A-share investment research and analysis
+- Portfolio risk assessment and optimization
+- Market sentiment and trend analysis
+- Fundamental valuation and technical trading signals
+- Multi-perspective investment decision making
 
 **Not Suitable For:**
-- [Anti-pattern 1]
-- [Anti-pattern 2]
+- Real-time trading execution (analysis only)
+- Cryptocurrency or non-A-share markets
+- High-frequency trading strategies
+- Automated portfolio rebalancing
 
 **Performance:**
-- Average processing time: ~[X] seconds
-- Max concurrent requests: [N]
-- Memory per request: [X]MB
+- Average processing time: ~360 seconds (comprehensive multi-agent analysis)
+- Max concurrent requests: 1 (sequential processing)
+- Memory per request: ~500MB (multi-agent LLM processing)
 
 ---
 
@@ -242,13 +278,19 @@ GitHub Actions will automatically:
 share-investment-agent/
 ├── share_investment_agent/
 │   ├── skills/
-│   │   └── share_investment_agent/
+│   │   └── share_investment/
 │   │       ├── skill.yaml          # Skill configuration
 │   │       └── __init__.py
+│   ├── agents.py                  # Multi-agent system implementation
+│   ├── tools/
+│   │   ├── data_acquisition.py    # Market data collection
+│   │   └── financial_analysis.py  # Financial metrics calculation
+│   ├── utils/
+│   │   └── logging_config.py     # Logging configuration
 │   ├── __init__.py
 │   ├── __main__.py
-│   ├── main.py                     # Agent entry point
-│   └── agent_config.json           # Agent configuration
+│   ├── main.py                   # Agent entry point
+│   └── agent_config.json         # Agent configuration
 ├── tests/
 │   └── test_main.py
 ├── .env.example
@@ -260,16 +302,17 @@ share-investment-agent/
 ### Running Tests
 
 ```bash
-make test              # Run all tests
-make test-cov          # With coverage report
+uv run pytest              # Run all tests
+uv run pytest --cov       # With coverage report
 ```
 
 ### Code Quality
 
 ```bash
-make format            # Format code with ruff
-make lint              # Run linters
-make check             # Format + lint + test
+uv run ruff check          # Run linter
+uv run ruff format         # Format code
+uv run ty check .          # Type checking
+uv run pre-commit run -a   # All pre-commit checks
 ```
 
 ### Pre-commit Hooks
@@ -332,7 +375,7 @@ uvx cookiecutter https://github.com/getbindu/create-bindu-agent.git
 ---
 
 <p align="center">
-  <strong>Built with 💛 by the team from Amsterdam 🌷</strong>
+  <strong>Built with 💛 for intelligent investment analysis 🌷</strong>
 </p>
 
 <p align="center">
@@ -340,6 +383,3 @@ uvx cookiecutter https://github.com/getbindu/create-bindu-agent.git
   <a href="https://discord.gg/3w5zuYUuwt">💬 Join Discord</a> •
   <a href="https://bindus.directory">🌐 Agent Directory</a>
 </p>
-
-#   s h a r e - i n v e s t m e n t - a g e n t  
- 

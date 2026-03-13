@@ -31,9 +31,9 @@
     },
     {
       "key": "MODEL_NAME",
-      "description": "Model name to use (default: gpt-4o)",
+      "description": "Model name to use (default: openai/gpt-oss-120b)",
       "required": false,
-      "default": "gpt-4o"
+      "default": "openai/gpt-oss-120b"
     }
   ]
 }

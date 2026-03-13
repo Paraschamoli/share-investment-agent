@@ -61,11 +61,11 @@ async def test_handler_initialization():
     # Start with _initialized as False to test initialization path
     with (
         patch("share_investment_agent.main._initialized", False),
-        patch("share_investment_agent.main.initialize_all", new_callable=AsyncMock) as _mock_init,
+        patch("share_investment_agent.main.initialize_agent", new_callable=AsyncMock) as _mock_init,
         patch("share_investment_agent.main.run_agent", new_callable=AsyncMock, return_value=mock_response),
         patch("share_investment_agent.main._init_lock"),
     ):
-        # Note: This test verifies the initialization logic exists
+        # Note: This test verifies that initialization logic exists
         # In practice, the lock and global state make this harder to test
         # You may want to refactor for better testability
         pass

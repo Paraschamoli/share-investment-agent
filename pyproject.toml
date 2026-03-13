@@ -113,9 +113,10 @@ ignore = [
     "E731",
     # Allow try-except patterns for error handling
     "TRY300",
+    # Allow method signature overrides for agent compatibility
+    "PLW3201",
+    # Allow direct raise for custom exceptions
     "TRY301",
-    "TRY003",
-    "TRY401",
 ]
 
 [tool.ruff.lint.per-file-ignores]
